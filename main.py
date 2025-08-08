@@ -1,4 +1,3 @@
-import torch
 from src.models.vae import VAE
 from src.utils.dataloader import get_mnist_dataloaders
 from src.train_vae import train_vae
@@ -12,13 +11,13 @@ from src.utils.analysis import (
     interpolate_between_digits,
     sample_from_latent_space
 )
+from src.utils.device import device
 
 
 def main():
     """Script principale per addestrare il VAE e analizzare lo spazio latente."""
     
     # Configurazione device
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Usando device: {device}")
     
     # Caricamento dati
