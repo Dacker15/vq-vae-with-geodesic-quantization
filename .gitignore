@@ -11,3 +11,6 @@ wheels/
 
 # Dataset folder
 data
+
+# Model folder
+output

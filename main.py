@@ -1,3 +1,4 @@
+import torch
 from src.models.vae import VAE
 from src.utils.dataloader import get_mnist_dataloaders
 from src.train_vae import train_vae
@@ -27,16 +28,30 @@ def main():
     # Inizializzazione modello
     print("Inizializzazione del modello VAE...")
     model = VAE(input_dim=784, hidden_dim=400, latent_dim=20).to(device)
-    
-    # Training
-    print("Training del VAE...")
-    epoch_losses = train_vae(
-        model=model, 
-        train_loader=train_loader, 
-        device=device, 
-        epochs=10, 
-        learning_rate=1e-3
-    )
+    is_vae_trained = False
+
+    try:
+        model.load_state_dict(torch.load('output/vae_model.pth', map_location=device))
+        print("Modello caricato con successo.")
+        is_vae_trained = True
+    except FileNotFoundError:
+        print("Nessun modello trovato, inizializzazione di un nuovo modello.")
+
+    if not is_vae_trained:
+        # Training
+        print("Training del VAE...")
+        epoch_losses = train_vae(
+            model=model, 
+            train_loader=train_loader, 
+            device=device, 
+            epochs=10, 
+            learning_rate=1e-3
+        )
+
+        print('Salvataggio del modello in output...')
+        torch.save(model.state_dict(), 'output/vae_model.pth')
+    else:
+        print("Modello già addestrato, saltando il training.")
     
     # Estrazione rappresentazioni latenti
     print("\nEstraendo rappresentazioni latenti...")
