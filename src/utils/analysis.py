@@ -207,3 +207,162 @@ def analyze_umap_parameters(latents, labels):
     
     plt.tight_layout()
     plt.show()
+
+
+def plot_reconstructions(model, data_loader, device, num_samples=8):
+    """
+    Visualizza esempi di ricostruzione del VAE.
+    
+    Args:
+        model: Modello VAE addestrato
+        data_loader: DataLoader da cui prendere i campioni
+        device: Device su cui eseguire l'inferenza
+        num_samples (int): Numero di campioni da ricostruire
+    """
+    model.eval()
+    
+    # Prendi un batch di dati
+    with torch.no_grad():
+        for data, labels in data_loader:
+            data = data.to(device)
+            # Prendi solo i primi num_samples
+            data = data[:num_samples]
+            labels = labels[:num_samples]
+            
+            # Ricostruisci
+            recon_data, mu, logvar = model(data)
+            
+            # Converti in numpy per il plotting
+            original = data.cpu().numpy()
+            reconstructed = recon_data.cpu().numpy().reshape(-1, 28, 28)
+            labels_np = labels.numpy()
+            
+            break
+    
+    # Plot
+    fig, axes = plt.subplots(2, num_samples, figsize=(num_samples * 2, 4))
+    
+    for i in range(num_samples):
+        # Immagine originale
+        axes[0, i].imshow(original[i, 0], cmap='gray')
+        axes[0, i].set_title(f'Originale\n(digit {labels_np[i]})')
+        axes[0, i].axis('off')
+        
+        # Immagine ricostruita
+        axes[1, i].imshow(reconstructed[i], cmap='gray')
+        axes[1, i].set_title('Ricostruita')
+        axes[1, i].axis('off')
+    
+    plt.suptitle('Confronto Originali vs Ricostruzioni VAE', fontsize=16)
+    plt.tight_layout()
+    plt.show()
+
+
+def interpolate_between_digits(model, data_loader, device, digit1=0, digit2=8, num_steps=10):
+    """
+    Crea un'interpolazione nello spazio latente tra due cifre diverse.
+    
+    Args:
+        model: Modello VAE addestrato
+        data_loader: DataLoader da cui prendere i campioni
+        device: Device su cui eseguire l'inferenza
+        digit1 (int): Prima cifra per l'interpolazione
+        digit2 (int): Seconda cifra per l'interpolazione
+        num_steps (int): Numero di passi nell'interpolazione
+    """
+    model.eval()
+    
+    # Trova esempi delle due cifre
+    sample1, sample2 = None, None
+    
+    with torch.no_grad():
+        for data, labels in data_loader:
+            data = data.to(device)
+            labels = labels.to(device)
+            
+            if sample1 is None:
+                # Cerca digit1
+                mask1 = (labels == digit1)
+                if mask1.any():
+                    sample1 = data[mask1][0:1]  # Prendi il primo esempio
+            
+            if sample2 is None:
+                # Cerca digit2
+                mask2 = (labels == digit2)
+                if mask2.any():
+                    sample2 = data[mask2][0:1]  # Prendi il primo esempio
+            
+            if sample1 is not None and sample2 is not None:
+                break
+    
+    if sample1 is None or sample2 is None:
+        print(f"Non sono riuscito a trovare esempi per le cifre {digit1} e {digit2}")
+        return
+    
+    with torch.no_grad():
+        # Codifica nello spazio latente
+        mu1, _ = model.encode(sample1.view(-1, 784))
+        mu2, _ = model.encode(sample2.view(-1, 784))
+        
+        # Crea interpolazione lineare
+        interpolations = []
+        alphas = np.linspace(0, 1, num_steps)
+        
+        for alpha in alphas:
+            # Interpolazione lineare: z = (1-α) * z1 + α * z2
+            z_interp = (1 - alpha) * mu1 + alpha * mu2
+            # Decodifica
+            recon = model.decode(z_interp)
+            interpolations.append(recon.cpu().numpy().reshape(28, 28))
+    
+    # Visualizzazione
+    fig, axes = plt.subplots(1, num_steps, figsize=(num_steps * 1.5, 2))
+    
+    for i, (img, alpha) in enumerate(zip(interpolations, alphas)):
+        axes[i].imshow(img, cmap='gray')
+        axes[i].set_title(f'α={alpha:.2f}')
+        axes[i].axis('off')
+    
+    plt.suptitle(f'Interpolazione VAE: da cifra {digit1} a cifra {digit2}', fontsize=14)
+    plt.tight_layout()
+    plt.show()
+
+
+def sample_from_latent_space(model, device, num_samples=16):
+    """
+    Genera nuove immagini campionando casualmente dallo spazio latente.
+    
+    Args:
+        model: Modello VAE addestrato
+        device: Device su cui eseguire l'inferenza
+        num_samples (int): Numero di campioni da generare
+    """
+    model.eval()
+    
+    with torch.no_grad():
+        # Campiona da una distribuzione normale standard
+        z = torch.randn(num_samples, model.fc_mu.out_features).to(device)
+        
+        # Decodifica
+        samples = model.decode(z)
+        samples = samples.cpu().numpy().reshape(-1, 28, 28)
+    
+    # Visualizzazione
+    rows = int(np.sqrt(num_samples))
+    cols = int(np.ceil(num_samples / rows))
+    
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 1.5, rows * 1.5))
+    axes = axes.flatten() if num_samples > 1 else [axes]
+    
+    for i in range(num_samples):
+        axes[i].imshow(samples[i], cmap='gray')
+        axes[i].set_title(f'Campione {i+1}')
+        axes[i].axis('off')
+    
+    # Nasconde gli assi extra se ce ne sono
+    for i in range(num_samples, len(axes)):
+        axes[i].axis('off')
+    
+    plt.suptitle('Campioni generati dal VAE', fontsize=14)
+    plt.tight_layout()
+    plt.show()
