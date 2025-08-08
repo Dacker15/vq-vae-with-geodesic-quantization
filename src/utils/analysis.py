@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 import umap
 import seaborn as sns
+import torch.nn.functional as F
 
 
 def get_latent_representations(model, data_loader, device, num_samples=5000):
@@ -100,7 +101,8 @@ def visualize_umap(latents, labels, n_neighbors=15, min_dist=0.1):
         n_neighbors=n_neighbors,
         min_dist=min_dist,
         n_components=2,
-        random_state=42
+        random_state=42,
+        n_jobs=1
     )
     
     latents_umap = umap_model.fit_transform(latents)
@@ -154,7 +156,7 @@ def compare_pca_umap(latents, labels):
     latents_pca = pca.fit_transform(latents)
     
     # UMAP
-    umap_model = umap.UMAP(n_components=2, random_state=42)
+    umap_model = umap.UMAP(n_components=2, random_state=42, n_jobs=1)
     latents_umap = umap_model.fit_transform(latents)
     
     fig, axes = plt.subplots(1, 2, figsize=(15, 6))
@@ -197,7 +199,7 @@ def analyze_umap_parameters(latents, labels):
     
     for i, param in enumerate(params):
         row, col = i // 2, i % 2
-        umap_temp = umap.UMAP(**param, n_components=2, random_state=42)
+        umap_temp = umap.UMAP(**param, n_components=2, random_state=42, n_jobs=1)
         latents_temp = umap_temp.fit_transform(latents)
         
         scatter = axes[row, col].scatter(latents_temp[:, 0], latents_temp[:, 1], 
@@ -209,160 +211,375 @@ def analyze_umap_parameters(latents, labels):
     plt.show()
 
 
-def plot_reconstructions(model, data_loader, device, num_samples=8):
+def sample_from_latent_space(model, data_loader, device):
     """
-    Visualizza esempi di ricostruzione del VAE.
+    Genera un confronto tra immagini originali e ricostruzioni del VAE per ogni cifra (0-9).
+    Crea un grafico 2x10 dove:
+    - Riga 1: Ricostruzioni del VAE per ogni cifra
+    - Riga 2: Immagini originali corrispondenti
     
     Args:
         model: Modello VAE addestrato
-        data_loader: DataLoader da cui prendere i campioni
+        data_loader: DataLoader con dati etichettati
         device: Device su cui eseguire l'inferenza
-        num_samples (int): Numero di campioni da ricostruire
+        num_samples (int): Parametro mantenuto per compatibilità (non utilizzato)
     """
     model.eval()
     
-    # Prendi un batch di dati
+    # Dizionario per memorizzare un esempio per ogni cifra
+    examples_by_digit = {}
+    reconstructions_by_digit = {}
+    
+    # Cerca un esempio per ogni cifra (0-9)
     with torch.no_grad():
         for data, labels in data_loader:
             data = data.to(device)
-            # Prendi solo i primi num_samples
-            data = data[:num_samples]
-            labels = labels[:num_samples]
             
-            # Ricostruisci
-            recon_data, mu, logvar = model(data)
+            for digit in range(10):
+                if digit not in examples_by_digit:
+                    # Trova il primo esempio di questa cifra
+                    mask = labels == digit
+                    if mask.any():
+                        # Prendi il primo esempio di questa cifra
+                        example_idx = mask.nonzero(as_tuple=True)[0][0]
+                        original_image = data[example_idx:example_idx+1]
+                        
+                        # Salva l'immagine originale
+                        examples_by_digit[digit] = original_image.cpu().numpy().reshape(28, 28)
+                        
+                        # Genera la ricostruzione
+                        mu, logvar = model.encode(original_image.view(-1, 784))
+                        reconstructed = model.decode(mu)
+                        reconstructions_by_digit[digit] = reconstructed.cpu().numpy().reshape(28, 28)
             
-            # Converti in numpy per il plotting
-            original = data.cpu().numpy()
-            reconstructed = recon_data.cpu().numpy().reshape(-1, 28, 28)
-            labels_np = labels.numpy()
-            
-            break
-    
-    # Plot
-    fig, axes = plt.subplots(2, num_samples, figsize=(num_samples * 2, 4))
-    
-    for i in range(num_samples):
-        # Immagine originale
-        axes[0, i].imshow(original[i, 0], cmap='gray')
-        axes[0, i].set_title(f'Originale\n(digit {labels_np[i]})')
-        axes[0, i].axis('off')
-        
-        # Immagine ricostruita
-        axes[1, i].imshow(reconstructed[i], cmap='gray')
-        axes[1, i].set_title('Ricostruita')
-        axes[1, i].axis('off')
-    
-    plt.suptitle('Confronto Originali vs Ricostruzioni VAE', fontsize=16)
-    plt.tight_layout()
-    plt.show()
-
-
-def interpolate_between_digits(model, data_loader, device, digit1=0, digit2=8, num_steps=10):
-    """
-    Crea un'interpolazione nello spazio latente tra due cifre diverse.
-    
-    Args:
-        model: Modello VAE addestrato
-        data_loader: DataLoader da cui prendere i campioni
-        device: Device su cui eseguire l'inferenza
-        digit1 (int): Prima cifra per l'interpolazione
-        digit2 (int): Seconda cifra per l'interpolazione
-        num_steps (int): Numero di passi nell'interpolazione
-    """
-    model.eval()
-    
-    # Trova esempi delle due cifre
-    sample1, sample2 = None, None
-    
-    with torch.no_grad():
-        for data, labels in data_loader:
-            data = data.to(device)
-            labels = labels.to(device)
-            
-            if sample1 is None:
-                # Cerca digit1
-                mask1 = (labels == digit1)
-                if mask1.any():
-                    sample1 = data[mask1][0:1]  # Prendi il primo esempio
-            
-            if sample2 is None:
-                # Cerca digit2
-                mask2 = (labels == digit2)
-                if mask2.any():
-                    sample2 = data[mask2][0:1]  # Prendi il primo esempio
-            
-            if sample1 is not None and sample2 is not None:
+            # Esci dal loop quando abbiamo trovato esempi per tutte le 10 cifre
+            if len(examples_by_digit) == 10:
                 break
     
-    if sample1 is None or sample2 is None:
-        print(f"Non sono riuscito a trovare esempi per le cifre {digit1} e {digit2}")
+    # Verifica che abbiamo trovato esempi per tutte le cifre
+    if len(examples_by_digit) < 10:
+        missing_digits = [d for d in range(10) if d not in examples_by_digit]
+        print(f"⚠️  Attenzione: Non sono stati trovati esempi per le cifre: {missing_digits}")
         return
     
-    with torch.no_grad():
-        # Codifica nello spazio latente
-        mu1, _ = model.encode(sample1.view(-1, 784))
-        mu2, _ = model.encode(sample2.view(-1, 784))
+    # Crea il grafico 2x10
+    fig, axes = plt.subplots(2, 10, figsize=(15, 4))
+    
+    for digit in range(10):
+        # Riga 1: Ricostruzioni del VAE
+        axes[0, digit].imshow(reconstructions_by_digit[digit], cmap='gray')
+        axes[0, digit].set_title(f'VAE: {digit}', fontsize=12, fontweight='bold')
+        axes[0, digit].axis('off')
         
-        # Crea interpolazione lineare
-        interpolations = []
-        alphas = np.linspace(0, 1, num_steps)
-        
-        for alpha in alphas:
-            # Interpolazione lineare: z = (1-α) * z1 + α * z2
-            z_interp = (1 - alpha) * mu1 + alpha * mu2
-            # Decodifica
-            recon = model.decode(z_interp)
-            interpolations.append(recon.cpu().numpy().reshape(28, 28))
+        # Riga 2: Immagini originali
+        axes[1, digit].imshow(examples_by_digit[digit], cmap='gray')
+        axes[1, digit].set_title(f'Orig: {digit}', fontsize=12, color='darkblue')
+        axes[1, digit].axis('off')
     
-    # Visualizzazione
-    fig, axes = plt.subplots(1, num_steps, figsize=(num_steps * 1.5, 2))
+    # Aggiungi etichette per le righe
+    fig.text(0.02, 0.75, 'Ricostruzioni\nVAE', fontsize=14, fontweight='bold', 
+             ha='center', va='center', rotation=90)
+    fig.text(0.02, 0.25, 'Immagini\nOriginali', fontsize=14, fontweight='bold', 
+             ha='center', va='center', rotation=90, color='darkblue')
     
-    for i, (img, alpha) in enumerate(zip(interpolations, alphas)):
-        axes[i].imshow(img, cmap='gray')
-        axes[i].set_title(f'α={alpha:.2f}')
-        axes[i].axis('off')
-    
-    plt.suptitle(f'Interpolazione VAE: da cifra {digit1} a cifra {digit2}', fontsize=14)
+    plt.suptitle('Confronto: Ricostruzioni VAE vs Immagini Originali per ogni Cifra', 
+                 fontsize=16, fontweight='bold', y=0.95)
     plt.tight_layout()
+    plt.subplots_adjust(left=0.08, top=0.85)
     plt.show()
 
 
-def sample_from_latent_space(model, device, num_samples=16):
+def calculate_elbo(model, data_loader, device, num_samples=1000):
     """
-    Genera nuove immagini campionando casualmente dallo spazio latente.
+    Calcola l'Evidence Lower BOund (ELBO) del modello VAE.
     
     Args:
         model: Modello VAE addestrato
+        data_loader: DataLoader da cui prendere i campioni
         device: Device su cui eseguire l'inferenza
-        num_samples (int): Numero di campioni da generare
+        num_samples (int): Numero di campioni da utilizzare
+        
+    Returns:
+        dict: Dizionario con ELBO totale, reconstruction loss e KL divergence
     """
     model.eval()
+    total_elbo = 0
+    total_recon_loss = 0
+    total_kl_div = 0
+    n_samples = 0
     
     with torch.no_grad():
-        # Campiona da una distribuzione normale standard
-        z = torch.randn(num_samples, model.fc_mu.out_features).to(device)
+        for data, _ in data_loader:
+            if n_samples >= num_samples:
+                break
+                
+            data = data.to(device)
+            batch_size = data.size(0)
+            
+            # Forward pass
+            recon_data, mu, logvar = model(data)
+            
+            # Reconstruction loss (negative log likelihood)
+            recon_loss = F.binary_cross_entropy(recon_data, data.view(-1, 784), reduction='sum')
+            
+            # KL divergence
+            kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+            
+            # ELBO = -reconstruction_loss - KL_divergence
+            elbo = -recon_loss - kl_div
+            
+            total_elbo += elbo.item()
+            total_recon_loss += recon_loss.item()
+            total_kl_div += kl_div.item()
+            n_samples += batch_size
+    
+    # Normalizza per il numero di campioni
+    avg_elbo = total_elbo / n_samples
+    avg_recon_loss = total_recon_loss / n_samples
+    avg_kl_div = total_kl_div / n_samples
+    
+    return {
+        'elbo': avg_elbo,
+        'reconstruction_loss': avg_recon_loss,
+        'kl_divergence': avg_kl_div
+    }
+
+
+def analyze_kl_divergence(model, data_loader, device, num_samples=1000):
+    """
+    Analizza la KL divergence per ogni dimensione latente.
+    
+    Args:
+        model: Modello VAE addestrato
+        data_loader: DataLoader da cui prendere i campioni
+        device: Device su cui eseguire l'inferenza
+        num_samples (int): Numero di campioni da utilizzare
         
-        # Decodifica
-        samples = model.decode(z)
-        samples = samples.cpu().numpy().reshape(-1, 28, 28)
+    Returns:
+        dict: Statistiche sulla KL divergence
+    """
+    model.eval()
+    all_mu = []
+    all_logvar = []
+    n_samples = 0
     
-    # Visualizzazione
-    rows = int(np.sqrt(num_samples))
-    cols = int(np.ceil(num_samples / rows))
+    with torch.no_grad():
+        for data, _ in data_loader:
+            if n_samples >= num_samples:
+                break
+                
+            data = data.to(device)
+            batch_size = data.size(0)
+            
+            # Ottieni mu e logvar
+            mu, logvar = model.encode(data.view(-1, 784))
+            all_mu.append(mu.cpu())
+            all_logvar.append(logvar.cpu())
+            n_samples += batch_size
     
-    fig, axes = plt.subplots(rows, cols, figsize=(cols * 1.5, rows * 1.5))
-    axes = axes.flatten() if num_samples > 1 else [axes]
+    # Concatena tutti i batch
+    all_mu = torch.cat(all_mu, dim=0)
+    all_logvar = torch.cat(all_logvar, dim=0)
     
-    for i in range(num_samples):
-        axes[i].imshow(samples[i], cmap='gray')
-        axes[i].set_title(f'Campione {i+1}')
-        axes[i].axis('off')
+    # Calcola KL divergence per ogni dimensione
+    kl_per_dim = -0.5 * (1 + all_logvar - all_mu.pow(2) - all_logvar.exp())
     
-    # Nasconde gli assi extra se ce ne sono
-    for i in range(num_samples, len(axes)):
-        axes[i].axis('off')
+    # Statistiche
+    kl_mean = kl_per_dim.mean(dim=0)
+    kl_std = kl_per_dim.std(dim=0)
+    total_kl = kl_per_dim.sum(dim=1).mean()
     
-    plt.suptitle('Campioni generati dal VAE', fontsize=14)
+    return {
+        'kl_per_dimension': kl_per_dim.mean(dim=0).numpy(),
+        'kl_std_per_dimension': kl_std.numpy(),
+        'total_kl_mean': total_kl.item(),
+        'mu_mean': all_mu.mean(dim=0).numpy(),
+        'mu_std': all_mu.std(dim=0).numpy(),
+        'logvar_mean': all_logvar.mean(dim=0).numpy(),
+        'logvar_std': all_logvar.std(dim=0).numpy()
+    }
+
+
+def detect_posterior_collapse(model, data_loader, device, threshold=0.01, num_samples=1000):
+    """
+    Rileva il posterior collapse analizzando la KL divergence per dimensione.
+    
+    Args:
+        model: Modello VAE addestrato
+        data_loader: DataLoader da cui prendere i campioni
+        device: Device su cui eseguire l'inferenza
+        threshold (float): Soglia sotto la quale si considera collapsed una dimensione
+        num_samples (int): Numero di campioni da utilizzare
+        
+    Returns:
+        dict: Informazioni sul posterior collapse
+    """
+    kl_analysis = analyze_kl_divergence(model, data_loader, device, num_samples)
+    kl_per_dim = kl_analysis['kl_per_dimension']
+    
+    # Identifica dimensioni collapsed
+    collapsed_dims = kl_per_dim < threshold
+    n_collapsed = collapsed_dims.sum()
+    n_active = len(kl_per_dim) - n_collapsed
+    
+    # Calcola utilizzo medio delle dimensioni attive
+    active_dims_kl = kl_per_dim[~collapsed_dims]
+    avg_active_kl = active_dims_kl.mean() if len(active_dims_kl) > 0 else 0
+    
+    return {
+        'n_collapsed_dimensions': int(n_collapsed),
+        'n_active_dimensions': int(n_active),
+        'total_dimensions': len(kl_per_dim),
+        'collapse_ratio': float(n_collapsed / len(kl_per_dim)),
+        'collapsed_dimensions': collapsed_dims,
+        'kl_per_dimension': kl_per_dim,
+        'avg_active_kl': float(avg_active_kl),
+        'threshold': threshold
+    }
+
+
+def visualize_kl_analysis(kl_analysis_results, latent_dims):
+    """
+    Visualizza i risultati dell'analisi KL per diverse dimensioni latenti.
+    
+    Args:
+        kl_analysis_results: Lista di risultati dell'analisi KL per ogni dimensione
+        latent_dims: Lista delle dimensioni latenti testate
+    """
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+    
+    # KL divergence per dimensione latente
+    axes[0, 0].bar(range(len(latent_dims)), [r['total_kl_mean'] for r in kl_analysis_results])
+    axes[0, 0].set_xlabel('Dimensioni Latenti')
+    axes[0, 0].set_ylabel('KL Divergence Media')
+    axes[0, 0].set_title('KL Divergence Totale per Dimensione Latente')
+    axes[0, 0].set_xticks(range(len(latent_dims)))
+    axes[0, 0].set_xticklabels(latent_dims)
+    
+    # Varianza delle medie
+    axes[0, 1].bar(range(len(latent_dims)), [r['mu_std'].mean() for r in kl_analysis_results])
+    axes[0, 1].set_xlabel('Dimensioni Latenti')
+    axes[0, 1].set_ylabel('Std Media di μ')
+    axes[0, 1].set_title('Variabilità delle Medie Latenti')
+    axes[0, 1].set_xticks(range(len(latent_dims)))
+    axes[0, 1].set_xticklabels(latent_dims)
+    
+    # Heatmap KL per ogni dimensione
+    max_dim = max(latent_dims)
+    kl_matrix = np.zeros((len(latent_dims), max_dim))
+    
+    for i, result in enumerate(kl_analysis_results):
+        kl_per_dim = result['kl_per_dimension']
+        kl_matrix[i, :len(kl_per_dim)] = kl_per_dim
+    
+    im = axes[1, 0].imshow(kl_matrix, aspect='auto', cmap='viridis')
+    axes[1, 0].set_xlabel('Dimensione Latente')
+    axes[1, 0].set_ylabel('Configurazione del Modello')
+    axes[1, 0].set_title('KL Divergence per Dimensione')
+    axes[1, 0].set_yticks(range(len(latent_dims)))
+    axes[1, 0].set_yticklabels([f'{dim}D' for dim in latent_dims])
+    plt.colorbar(im, ax=axes[1, 0])
+    
+    # Distribuzione delle log-varianze
+    for i, result in enumerate(kl_analysis_results):
+        logvar_mean = result['logvar_mean']
+        axes[1, 1].plot(logvar_mean, label=f'{latent_dims[i]}D', alpha=0.7)
+    
+    axes[1, 1].set_xlabel('Dimensione Latente')
+    axes[1, 1].set_ylabel('Log-Varianza Media')
+    axes[1, 1].set_title('Distribuzione Log-Varianza')
+    axes[1, 1].legend()
+    
     plt.tight_layout()
     plt.show()
+
+
+def compare_models_metrics(results_dict):
+    """
+    Confronta le metriche tra diversi modelli con dimensioni latenti diverse.
+    
+    Args:
+        results_dict: Dizionario con i risultati per ogni dimensione latente
+    """
+    latent_dims = list(results_dict.keys())
+    
+    # Estrai metriche
+    elbos = [results_dict[dim]['elbo']['elbo'] for dim in latent_dims]
+    recon_losses = [results_dict[dim]['elbo']['reconstruction_loss'] for dim in latent_dims]
+    kl_divs = [results_dict[dim]['elbo']['kl_divergence'] for dim in latent_dims]
+    collapse_ratios = [results_dict[dim]['collapse']['collapse_ratio'] for dim in latent_dims]
+    active_dims = [results_dict[dim]['collapse']['n_active_dimensions'] for dim in latent_dims]
+    
+    # Crea il plot
+    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+    
+    # ELBO
+    axes[0, 0].plot(latent_dims, elbos, 'bo-', linewidth=2, markersize=8)
+    axes[0, 0].set_xlabel('Dimensioni Latenti')
+    axes[0, 0].set_ylabel('ELBO')
+    axes[0, 0].set_title('Evidence Lower BOund')
+    axes[0, 0].grid(True, alpha=0.3)
+    
+    # Reconstruction Loss
+    axes[0, 1].plot(latent_dims, recon_losses, 'ro-', linewidth=2, markersize=8)
+    axes[0, 1].set_xlabel('Dimensioni Latenti')
+    axes[0, 1].set_ylabel('Reconstruction Loss')
+    axes[0, 1].set_title('Perdita di Ricostruzione')
+    axes[0, 1].grid(True, alpha=0.3)
+    
+    # KL Divergence
+    axes[0, 2].plot(latent_dims, kl_divs, 'go-', linewidth=2, markersize=8)
+    axes[0, 2].set_xlabel('Dimensioni Latenti')
+    axes[0, 2].set_ylabel('KL Divergence')
+    axes[0, 2].set_title('Divergenza di Kullback-Leibler')
+    axes[0, 2].grid(True, alpha=0.3)
+    
+    # Posterior Collapse Ratio
+    axes[1, 0].plot(latent_dims, collapse_ratios, 'mo-', linewidth=2, markersize=8)
+    axes[1, 0].set_xlabel('Dimensioni Latenti')
+    axes[1, 0].set_ylabel('Rapporto di Collasso')
+    axes[1, 0].set_title('Posterior Collapse Ratio')
+    axes[1, 0].grid(True, alpha=0.3)
+    
+    # Dimensioni Attive
+    axes[1, 1].plot(latent_dims, active_dims, 'co-', linewidth=2, markersize=8)
+    axes[1, 1].set_xlabel('Dimensioni Latenti')
+    axes[1, 1].set_ylabel('Dimensioni Attive')
+    axes[1, 1].set_title('Numero di Dimensioni Attive')
+    axes[1, 1].grid(True, alpha=0.3)
+    
+    # Efficienza delle dimensioni (Active dims / Total dims)
+    efficiency = [active_dims[i] / latent_dims[i] for i in range(len(latent_dims))]
+    axes[1, 2].plot(latent_dims, efficiency, 'yo-', linewidth=2, markersize=8)
+    axes[1, 2].set_xlabel('Dimensioni Latenti')
+    axes[1, 2].set_ylabel('Efficienza')
+    axes[1, 2].set_title('Efficienza delle Dimensioni (Attive/Totali)')
+    axes[1, 2].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.show()
+    
+    # Stampa sommario
+    print("\n" + "="*80)
+    print("SOMMARIO CONFRONTO MODELLI")
+    print("="*80)
+    
+    for i, dim in enumerate(latent_dims):
+        print(f"\nModello con {dim} dimensioni latenti:")
+        print(f"  ELBO: {elbos[i]:.4f}")
+        print(f"  Reconstruction Loss: {recon_losses[i]:.4f}")
+        print(f"  KL Divergence: {kl_divs[i]:.4f}")
+        print(f"  Dimensioni Attive: {active_dims[i]}/{dim} ({efficiency[i]:.2%})")
+        print(f"  Posterior Collapse: {collapse_ratios[i]:.2%}")
+    
+    # Trova il miglior modello per ogni metrica
+    best_elbo_idx = np.argmax(elbos)
+    best_efficiency_idx = np.argmax(efficiency)
+    min_collapse_idx = np.argmin(collapse_ratios)
+    
+    print(f"\n" + "-"*80)
+    print("MIGLIORI MODELLI:")
+    print(f"  Miglior ELBO: {latent_dims[best_elbo_idx]} dimensioni (ELBO: {elbos[best_elbo_idx]:.4f})")
+    print(f"  Maggiore Efficienza: {latent_dims[best_efficiency_idx]} dimensioni ({efficiency[best_efficiency_idx]:.2%})")
+    print(f"  Minor Collapse: {latent_dims[min_collapse_idx]} dimensioni ({collapse_ratios[min_collapse_idx]:.2%})")
+    print("-"*80)
