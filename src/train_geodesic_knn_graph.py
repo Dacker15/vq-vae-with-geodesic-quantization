@@ -137,7 +137,7 @@ def run_single_experiment(latent_dim: int, k_neighbors: int, n_clusters: int,
     start_time = time.time()
     
     # Configura il modello VAE
-    model_path = f'output/vae_model_{latent_dim}d.pth'
+    model_path = f'output/vae/vae_model_{latent_dim}d.pth'
     
     # Verifica che il modello esista
     if not os.path.exists(model_path):

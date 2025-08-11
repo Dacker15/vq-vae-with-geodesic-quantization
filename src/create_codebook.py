@@ -21,7 +21,7 @@ def create_and_test_codebook():
 
     # 1. Configurazione
     clustering_path = "output/clustering_knn_graphs/clustering_32_18_128.npz"
-    vae_model_path = "output/vae_model_32d.pth"
+    vae_model_path = "output/vae/vae_model_32d.pth"
 
     print(f"File cluster: {clustering_path}")
     print(f"Modello VAE: {vae_model_path}")
