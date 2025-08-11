@@ -34,13 +34,13 @@ def get_mnist_dataloaders(batch_size=128):
     return train_loader, test_loader
 
 
-def get_mnist_single_batch(max_samples=8000, split='test'):
+def get_mnist_single_batch(max_samples=-1, split='test'):
     """
     Carica l'intero dataset MNIST in un singolo batch.
     
     Args:
         max_samples (int): Numero massimo di campioni da caricare
-        split (str): 'train' o 'test'
+        split (str): 'train', 'test' o 'complete'
         
     Returns:
         tuple: (data_tensor, labels_tensor) 
@@ -55,13 +55,19 @@ def get_mnist_single_batch(max_samples=8000, split='test'):
         dataset = torchvision.datasets.MNIST(
             root='./data', train=True, download=True, transform=transform
         )
-    else:
+    elif split == 'test':
         dataset = torchvision.datasets.MNIST(
             root='./data', train=False, download=True, transform=transform
         )
-    
+    elif split == 'complete':
+        dataset = torchvision.datasets.MNIST(
+            root='./data', download=True, transform=transform
+        )
+    else:
+        raise ValueError("split deve essere 'train', 'test' o 'complete'")
+
     # Limita il numero di campioni se specificato
-    if max_samples and max_samples < len(dataset):
+    if max_samples > 0 and max_samples < len(dataset):
         indices = torch.randperm(len(dataset))[:max_samples]
         dataset = torch.utils.data.Subset(dataset, indices)
     

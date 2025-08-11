@@ -17,7 +17,6 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # Parametri fissi per gli esperimenti
-MAX_SAMPLES = 8000  # Numero fisso di campioni per cluster significativi
 RANDOM_STATE = 42
 
 
@@ -186,7 +185,7 @@ def run_single_experiment(latent_dim: int, k_neighbors: int, n_clusters: int,
         'latent_dim': latent_dim,
         'k_neighbors': k_neighbors,
         'n_clusters': n_clusters,
-        'max_samples': MAX_SAMPLES,
+        'max_samples': len(data),
         'random_state': RANDOM_STATE
     }
     
@@ -331,35 +330,38 @@ def main():
     """
     print("AVVIO ESPERIMENTI CLUSTERING GEODESICO K-MEANS")
     print("="*80)
-    
+
     # Parametri degli esperimenti
-    latent_dims = [20, 32]
-    k_neighbors_range = list(range(10, 21, 2))  # [10, 12, 14, 16, 18, 20]
+    latent_dims = [32]
+    k_neighbors_range = [16, 18, 20]
     n_clusters_options = [128, 256, 512]
-    
+
+    # Setup device
+    print(f"Device: {device}")
+
+    # Carica i dati una sola volta
+    print(f"\nCaricamento dataset MNIST...")
+    data, labels = get_mnist_single_batch(split='complete')
+
+    # Log dei parametri degli esperimenti
     print(f"CONFIGURAZIONE ESPERIMENTI:")
     print(f"  • Dimensioni latenti: {latent_dims}")
     print(f"  • k-neighbors: {k_neighbors_range}")
     print(f"  • n_clusters: {n_clusters_options}")
-    print(f"  • Campioni fissi: {MAX_SAMPLES}")
-    print(f"  • Totale esperimenti: {len(latent_dims) * len(k_neighbors_range) * len(n_clusters_options)}")
-    
-    # Setup device
-    print(f"Device: {device}")
-    
-    # Carica i dati una sola volta
-    print(f"\nCaricamento dataset MNIST...")
-    data, labels = get_mnist_single_batch(max_samples=MAX_SAMPLES, split='test')
-    
+    print(f"  • Campioni fissi: {len(data)}")
+    print(
+        f"  • Totale esperimenti: {len(latent_dims) * len(k_neighbors_range) * len(n_clusters_options)}"
+    )
+
     # Esegui tutti gli esperimenti
     all_results = []
     total_experiments = len(latent_dims) * len(k_neighbors_range) * len(n_clusters_options)
     current_experiment = 0
-    
+
     for latent_dim, k_neighbors, n_clusters in product(latent_dims, k_neighbors_range, n_clusters_options):
         current_experiment += 1
         print(f"\nProgresso: {current_experiment}/{total_experiments}")
-        
+
         try:
             result = run_single_experiment(latent_dim, k_neighbors, n_clusters, data, labels)
             if result is not None:
@@ -367,7 +369,7 @@ def main():
         except Exception as e:
             print(f"Errore nell'esperimento LD={latent_dim}, k={k_neighbors}, clusters={n_clusters}: {e}")
             continue
-    
+
     # Mostra riepilogo finale
     if all_results:
         show_final_summary(all_results)
