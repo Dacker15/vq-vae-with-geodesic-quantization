@@ -333,15 +333,15 @@ def main():
 
     # Parametri degli esperimenti
     latent_dims = [32]
-    k_neighbors_range = [16, 18, 20]
-    n_clusters_options = [128, 256, 512]
+    k_neighbors_range = [4, 6, 8, 10]
+    n_clusters_options = [64, 128, 256]
 
     # Setup device
     print(f"Device: {device}")
 
     # Carica i dati una sola volta
     print(f"\nCaricamento dataset MNIST...")
-    data, labels = get_mnist_single_batch(split='complete')
+    data, labels = get_mnist_single_batch(max_samples=10000, split="test")
 
     # Log dei parametri degli esperimenti
     print(f"CONFIGURAZIONE ESPERIMENTI:")

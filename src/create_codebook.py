@@ -20,7 +20,7 @@ def create_and_test_codebook():
     print("="*80)
 
     # 1. Configurazione
-    clustering_path = "output/clustering_knn_graphs/clustering_32_18_128.npz"
+    clustering_path = "output/clustering_knn_graphs/clustering_32_6_64.npz"
     vae_model_path = "output/vae/vae_model_32d.pth"
 
     print(f"File cluster: {clustering_path}")
@@ -140,7 +140,7 @@ def create_and_test_codebook():
     print("="*60)
 
     # Salva il codebook
-    codebook_path = "output/geodesic_codebook.pth"
+    codebook_path = "output/geodesic_quantizer/geodesic_codebook.pth"
     quantizer.save_codebook(codebook_path)
 
     print(f"Codebook salvato: {codebook_path}")
