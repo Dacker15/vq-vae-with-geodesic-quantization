@@ -7,7 +7,9 @@ import time
 from itertools import product
 
 from models.vae import VAE
-from models.knn_graph import GeodesicKNNGraph
+from models.knn_graph import KNNGraph
+from models.kmeans_euclidean import KMeansEuclidean
+from models.kmeans_geodesic import KMeansGeodesic
 from utils.dataloader import get_mnist_single_batch
 from utils.device import device
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
@@ -133,54 +135,81 @@ def run_single_experiment(latent_dim: int, k_neighbors: int, n_clusters: int,
     print(f"\n{'='*80}")
     print(f"ESPERIMENTO: LD={latent_dim}, k={k_neighbors}, clusters={n_clusters}")
     print(f"{'='*80}")
-    
+
     start_time = time.time()
-    
+
     # Configura il modello VAE
     model_path = f'output/vae/vae_model_{latent_dim}d.pth'
-    
+
     # Verifica che il modello esista
     if not os.path.exists(model_path):
         print(f"Modello non trovato: {model_path}")
         return None
-    
+
     # Carica il modello VAE
     vae_model = load_trained_vae(model_path, latent_dim)
 
     # Estrai rappresentazioni latenti
     latent_vectors = extract_latent_representations(vae_model, data)
     true_labels = labels.numpy()
-    
+
     # Inizializza il grafo k-NN geodesico
-    print(f"Costruzione grafo k-NN con k={k_neighbors}...")
-    geodesic_clusterer = GeodesicKNNGraph(k=k_neighbors)
-    
-    # Costruisci il grafo k-NN
-    geodesic_clusterer.build_knn_graph(latent_vectors, metric='euclidean')
-    
-    # Calcola distanze geodesiche
-    print("Calcolo distanze geodesiche...")
-    geodesic_clusterer.compute_geodesic_distances(method='D')
-    
-    # Confronta clustering geodesico vs euclideo
-    print(f"Esecuzione clustering con {n_clusters} cluster...")
-    comparison_results = geodesic_clusterer.compare_with_euclidean_kmeans(
+    print(f"Costruzione grafo k-NN con k={k_neighbors} e calcolo delle distanze geodesiche...")
+    knn_graph = KNNGraph(k=k_neighbors)
+
+    # Costruisci il grafo k-NN e calcola le distanze
+    knn_graph.fit(latent_vectors, metric='euclidean')
+
+    # Esecuzione clustering K-Means con metrica euclidea
+    print("Esecuzione clustering K-Means Euclideo...")
+    kmeans_euclidean = KMeansEuclidean(n_clusters=n_clusters, random_state=RANDOM_STATE)
+    kmeans_euclidean.fit(latent_vectors)
+    print('Clustering K-Means Euclideo completato.')
+
+    # Esecuzione clustering K-Means con metrica geodesica
+    print("Esecuzione clustering K-Means Geodesico...")
+    kmeans_geodesic = KMeansGeodesic(
+        knn_graph=knn_graph.graph, 
+        distance_matrix=knn_graph.geodesic_distances, 
         n_clusters=n_clusters, 
         random_state=RANDOM_STATE
     )
-    
+    # Conversione dei samples in indici
+    sample_indices = np.arange(latent_vectors.shape[0])
+    kmeans_geodesic.fit(sample_indices)
+    print('Clustering K-Means Geodesico completato.')
+
+    # Calcola i risultati di confronto
+    comparison_results = {
+        "euclidean_labels": kmeans_euclidean.euclidean_labels,
+        "geodesic_labels": kmeans_geodesic.labels_,
+        "geodesic_centers": kmeans_geodesic.cluster_centers_,
+        "euclidean_centers": kmeans_euclidean.kmeans_alg.cluster_centers_,
+        "euclidean_inertia": kmeans_euclidean.kmeans_alg.inertia_,
+        "n_different_assignments": np.sum(
+            kmeans_euclidean.euclidean_labels != kmeans_geodesic.labels_
+        ),
+        "agreement_percentage": np.mean(
+            kmeans_euclidean.euclidean_labels == kmeans_geodesic.labels_
+        )
+        * 100,
+    }
+
+    print(f"Accordo tra clustering euclideo e geodesico: {comparison_results['agreement_percentage']:.1f}%")
+    print(f"Punti assegnati diversamente: {comparison_results['n_different_assignments']}")
+
     # Valuta i risultati
     euclidean_metrics = evaluate_clustering(true_labels, comparison_results['euclidean_labels'])
     geodesic_metrics = evaluate_clustering(true_labels, comparison_results['geodesic_labels'])
-    
+
     # Crea directory output se non esiste
     output_dir = Path('output/clustering_knn_graphs')
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Salva i risultati
     output_filename = f'clustering_{latent_dim}_{k_neighbors}_{n_clusters}.npz'
     output_path = output_dir / output_filename
-    
+
     config = {
         'latent_dim': latent_dim,
         'k_neighbors': k_neighbors,
@@ -188,7 +217,7 @@ def run_single_experiment(latent_dim: int, k_neighbors: int, n_clusters: int,
         'max_samples': len(data),
         'random_state': RANDOM_STATE
     }
-    
+
     np.savez(
         str(output_path),
         latent_vectors=latent_vectors,
@@ -201,7 +230,7 @@ def run_single_experiment(latent_dim: int, k_neighbors: int, n_clusters: int,
         comparison_results=comparison_results,
         config=config
     )
-    
+
     # Salva visualizzazione
     print("Generazione visualizzazioni...")
     save_visualization(
@@ -210,33 +239,33 @@ def run_single_experiment(latent_dim: int, k_neighbors: int, n_clusters: int,
         comparison_results['geodesic_labels'],
         str(output_path), config
     )
-    
+
     elapsed_time = time.time() - start_time
-    
+
     # Mostra analisi risultati
     print(f"\nANALISI RISULTATI:")
     print(f"  Tempo impiegato: {elapsed_time:.1f}s")
     print(f"  Campioni processati: {len(latent_vectors)}")
     print(f"  Dimensione spazio latente: {latent_vectors.shape[1]}")
-    
+
     print(f"\nMETRICHE DI CLUSTERING:")
     print(f"  K-Means Euclideo:")
     print(f"    ◦ ARI: {euclidean_metrics['ari']:.3f}")
     print(f"    ◦ NMI: {euclidean_metrics['nmi']:.3f}")
-    
+
     print(f"  K-Means Geodesico:")
     print(f"    ◦ ARI: {geodesic_metrics['ari']:.3f}")
     print(f"    ◦ NMI: {geodesic_metrics['nmi']:.3f}")
-    
+
     print(f"\nCONFRONTO TRA METODI:")
     print(f"  • Accordo: {comparison_results['agreement_percentage']:.1f}%")
     print(f"  • Punti assegnati diversamente: {comparison_results['n_different_assignments']}")
-    
+
     ari_improvement = geodesic_metrics['ari'] - euclidean_metrics['ari']
     nmi_improvement = geodesic_metrics['nmi'] - euclidean_metrics['nmi']
     print(f"  • Miglioramento ARI: {ari_improvement:+.3f}")
     print(f"  • Miglioramento NMI: {nmi_improvement:+.3f}")
-    
+
     # Interpretazione
     if ari_improvement > 0.05:
         interpretation = "Geodesico significativamente migliore"
@@ -250,7 +279,7 @@ def run_single_experiment(latent_dim: int, k_neighbors: int, n_clusters: int,
     print(f"  Interpretazione: {interpretation}")
 
     print(f"\nRisultati salvati in: {output_path}")
-    
+
     # Ritorna i risultati per il riepilogo finale
     return {
         'config': config,
@@ -333,8 +362,8 @@ def main():
 
     # Parametri degli esperimenti
     latent_dims = [32]
-    k_neighbors_range = [4, 6, 8, 10]
-    n_clusters_options = [64, 128, 256]
+    k_neighbors_range = [8, 16, 24, 32]
+    n_clusters_options = [10]
 
     # Setup device
     print(f"Device: {device}")
