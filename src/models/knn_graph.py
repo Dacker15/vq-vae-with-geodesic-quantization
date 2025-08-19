@@ -1,4 +1,5 @@
 import numpy as np
+import os
 from sklearn.neighbors import NearestNeighbors
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import shortest_path
@@ -117,4 +118,60 @@ class KNNGraph:
         self.compute_geodesic_distances()
         
         return self
+    
+    def save_graph(self, filepath: str) -> None:
+        """
+        Salva il grafo e le distanze geodesiche su file.
+        
+        Args:
+            filepath (str): Percorso del file dove salvare il grafo
+        """
+        if self.graph is None or self.geodesic_distances is None:
+            raise ValueError("Il grafo e le distanze devono essere calcolati prima di salvare")
+        
+        np.savez_compressed(
+            filepath,
+            graph_data=self.graph.data,
+            graph_indices=self.graph.indices,
+            graph_indptr=self.graph.indptr,
+            graph_shape=self.graph.shape,
+            geodesic_distances=self.geodesic_distances,
+            data_points=self.data_points,
+            k=self.k
+        )
+        print(f"Grafo salvato: {filepath}")
+    
+    def load_graph(self, filepath: str) -> bool:
+        """
+        Carica il grafo e le distanze geodesiche da file.
+        
+        Args:
+            filepath (str): Percorso del file da cui caricare il grafo
+            
+        Returns:
+            bool: True se il caricamento è riuscito, False altrimenti
+        """
+        try:
+            if not os.path.exists(filepath):
+                return False
+                
+            print(f"Caricamento grafo da: {filepath}")
+            data = np.load(filepath)
+            
+            # Ricostruisce la matrice sparsa
+            self.graph = csr_matrix(
+                (data['graph_data'], data['graph_indices'], data['graph_indptr']),
+                shape=tuple(data['graph_shape'])
+            )
+            
+            self.geodesic_distances = data['geodesic_distances']
+            self.data_points = data['data_points']
+            self.k = int(data['k'])
+            
+            print(f"Grafo caricato: {self.graph.nnz} archi, {self.data_points.shape[0]} punti")
+            return True
+            
+        except Exception as e:
+            print(f"Errore nel caricamento del grafo: {e}")
+            return False
     
