@@ -405,7 +405,7 @@ def main():
     # Parametri degli esperimenti
     latent_dim = 32
     k_neighbors_range = [8, 10, 12, 14, 15, 16, 18, 20, 22, 24, 25]
-    n_clusters_options = [64, 96, 128, 256]
+    n_clusters_options = [64, 96, 128, 256, 512]
 
     # Setup device
     print(f"Device: {device}")
